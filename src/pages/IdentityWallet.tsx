@@ -1,38 +1,63 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
-import { Link } from "react-router-dom";
-import { ArrowLeft, Shield, Star, CheckCircle2, Clock, QrCode } from "lucide-react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { ArrowLeft, Shield, Star, CheckCircle2, Clock, QrCode, Copy } from "lucide-react";
+import { useToast } from "@/hooks/use-toast";
 
-// Mock user data - would come from secure storage/backend
-const mockUser = {
-  name: "Sarah Johnson",
-  email: "sarah.johnson@email.com",
-  id: "RV-2024-001234",
-  verifiedAt: "2024-01-15",
-  trustScore: "High",
-  totalPurchases: 47,
-  successfulReturns: 12,
-  retailerScores: [
-    { name: "Best Buy", score: 4.8, purchases: 12, logo: "BB" },
-    { name: "Target", score: 4.9, purchases: 8, logo: "T" },
-    { name: "Amazon", score: 4.7, purchases: 15, logo: "A" },
-    { name: "Walmart", score: 4.6, purchases: 12, logo: "W" },
-  ]
-};
+// Default retailer scores - would come from backend based on transaction history
+const defaultRetailerScores = [
+  { name: "Best Buy", score: 5.0, purchases: 0, logo: "BB" },
+  { name: "Target", score: 5.0, purchases: 0, logo: "T" },
+  { name: "Amazon", score: 5.0, purchases: 0, logo: "A" },
+  { name: "Walmart", score: 5.0, purchases: 0, logo: "W" },
+];
 
 const IdentityWallet = () => {
   const [showQR, setShowQR] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { toast } = useToast();
+  const userData = location.state?.userData;
 
-  const getTrustBadgeColor = (score: string) => {
-    switch (score) {
-      case "High": return "bg-trust-high text-trust-high-foreground";
-      case "Medium": return "bg-trust-medium text-trust-medium-foreground"; 
-      case "Low": return "bg-trust-low text-trust-low-foreground";
-      default: return "bg-muted text-muted-foreground";
+  useEffect(() => {
+    if (!userData) {
+      navigate("/kyc");
     }
+  }, [userData, navigate]);
+
+  if (!userData) {
+    return null;
+  }
+
+  // Generate unique verification ID based on user data
+  const generateVerificationId = () => {
+    const timestamp = Date.now().toString(36);
+    const random = Math.random().toString(36).substring(2, 6).toUpperCase();
+    return `RV-${timestamp}-${random}`;
+  };
+
+  const verificationId = generateVerificationId();
+  const userName = `${userData.firstName} ${userData.lastName}`;
+  const verifiedDate = new Date().toLocaleDateString('en-US', { 
+    year: 'numeric', 
+    month: 'long', 
+    day: 'numeric' 
+  });
+
+  const copyToClipboard = (text: string) => {
+    navigator.clipboard.writeText(text);
+    toast({
+      title: "Copied!",
+      description: "Verification ID copied to clipboard",
+    });
+  };
+
+  const getTrustBadgeColor = () => {
+    // New users start with High trust
+    return "bg-trust-high text-trust-high-foreground";
   };
 
   const renderStars = (score: number) => {
@@ -67,36 +92,70 @@ const IdentityWallet = () => {
             <div className="flex flex-col items-center gap-3">
               <Avatar className="w-20 h-20 border-4 border-primary/20">
                 <AvatarFallback className="text-xl font-bold bg-gradient-primary text-white">
-                  {mockUser.name.split(' ').map(n => n[0]).join('')}
+                  {userData.firstName[0]}{userData.lastName[0]}
                 </AvatarFallback>
               </Avatar>
               <div>
-                <CardTitle className="text-xl">{mockUser.name}</CardTitle>
-                <p className="text-muted-foreground text-sm">{mockUser.email}</p>
-                <p className="text-xs text-muted-foreground mt-1">ID: {mockUser.id}</p>
+                <CardTitle className="text-xl">{userName}</CardTitle>
+                <p className="text-muted-foreground text-sm">{userData.email}</p>
+                <p className="text-xs text-muted-foreground mt-1">Phone: {userData.phone}</p>
               </div>
             </div>
           </CardHeader>
           <CardContent className="space-y-4">
+            {/* Verification ID - Prominent Display */}
+            <div className="p-4 bg-gradient-primary rounded-lg text-center">
+              <div className="text-xs text-white/80 mb-1">Verification ID</div>
+              <div className="text-lg font-mono font-bold text-white mb-2">{verificationId}</div>
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => copyToClipboard(verificationId)}
+                className="bg-white/20 hover:bg-white/30 text-white border-0"
+              >
+                <Copy className="w-3 h-3 mr-1" />
+                Copy ID
+              </Button>
+            </div>
+
             {/* Verification Status */}
             <div className="flex items-center justify-between p-3 bg-trust-high/10 rounded-lg">
               <div className="flex items-center gap-2">
                 <CheckCircle2 className="w-5 h-5 text-trust-high" />
-                <span className="font-medium">Identity Verified</span>
+                <div>
+                  <span className="font-medium block">Identity Verified</span>
+                  <span className="text-xs text-muted-foreground">{verifiedDate}</span>
+                </div>
               </div>
-              <Badge className={getTrustBadgeColor(mockUser.trustScore)}>
-                {mockUser.trustScore} Trust
+              <Badge className={getTrustBadgeColor()}>
+                High Trust
               </Badge>
+            </div>
+
+            {/* User Details */}
+            <div className="p-3 bg-muted/50 rounded-lg space-y-2 text-sm">
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">ID Type:</span>
+                <span className="font-medium capitalize">{userData.idType.replace('_', ' ')}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">ID Number:</span>
+                <span className="font-medium">{userData.idNumber}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-muted-foreground">Address:</span>
+                <span className="font-medium text-right">{userData.city}, {userData.state}</span>
+              </div>
             </div>
 
             {/* Quick Stats */}
             <div className="grid grid-cols-2 gap-3">
               <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <div className="text-2xl font-bold text-primary">{mockUser.totalPurchases}</div>
+                <div className="text-2xl font-bold text-primary">0</div>
                 <div className="text-xs text-muted-foreground">Total Purchases</div>
               </div>
               <div className="text-center p-3 bg-muted/50 rounded-lg">
-                <div className="text-2xl font-bold text-secondary">{mockUser.successfulReturns}</div>
+                <div className="text-2xl font-bold text-secondary">0</div>
                 <div className="text-xs text-muted-foreground">Successful Returns</div>
               </div>
             </div>
@@ -137,7 +196,7 @@ const IdentityWallet = () => {
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-3">
-            {mockUser.retailerScores.map((retailer) => (
+            {defaultRetailerScores.map((retailer) => (
               <div key={retailer.name} className="flex items-center justify-between p-3 border border-border rounded-lg hover:shadow-soft transition-shadow">
                 <div className="flex items-center gap-3">
                   <Avatar className="w-10 h-10">
