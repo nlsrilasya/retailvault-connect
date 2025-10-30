@@ -1,4 +1,7 @@
 import { useState } from "react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import * as z from "zod";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,45 +11,79 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Link, useNavigate } from "react-router-dom";
 import { ArrowLeft, Shield, CheckCircle2, Upload, Eye, EyeOff } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage, FormDescription } from "@/components/ui/form";
+
+// Validation schema
+const formSchema = z.object({
+  firstName: z.string().min(1, "First name is required").max(50, "First name must be less than 50 characters"),
+  lastName: z.string().min(1, "Last name is required").max(50, "Last name must be less than 50 characters"),
+  email: z.string().email("Invalid email address"),
+  phone: z.string().regex(/^[0-9]{10}$/, "Phone number must be exactly 10 digits"),
+  dateOfBirth: z.string().min(1, "Date of birth is required"),
+  address: z.string().min(5, "Address must be at least 5 characters"),
+  city: z.string().min(2, "City is required"),
+  state: z.string().min(1, "State is required"),
+  pincode: z.string().regex(/^[0-9]{6}$/, "Pincode must be exactly 6 digits"),
+  idType: z.string().min(1, "ID type is required"),
+  idNumber: z.string().min(1, "ID number is required"),
+  aadhar: z.string().regex(/^[0-9]{12}$/, "Aadhar number must be exactly 12 digits"),
+  agreedToTerms: z.boolean().refine(val => val === true, "You must agree to terms and conditions"),
+  agreedToPrivacy: z.boolean().refine(val => val === true, "You must agree to privacy policy"),
+}).refine((data) => {
+  // Validate ID number based on ID type
+  if (data.idType === "passport") {
+    return data.idNumber.length === 8;
+  } else if (data.idType === "drivers_license") {
+    return data.idNumber.length >= 8 && data.idNumber.length <= 16;
+  } else if (data.idType === "state_id") {
+    return data.idNumber.length >= 5 && data.idNumber.length <= 20;
+  }
+  return true;
+}, {
+  message: "Invalid ID number format for selected ID type",
+  path: ["idNumber"]
+});
+
+type FormValues = z.infer<typeof formSchema>;
 
 const KYCForm = () => {
-  const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    dateOfBirth: "",
-    address: "",
-    city: "",
-    state: "",
-    zipCode: "",
-    idType: "",
-    idNumber: "",
-    ssn: "",
-    agreedToTerms: false,
-    agreedToPrivacy: false,
-  });
-  const [showSSN, setShowSSN] = useState(false);
+  const [showAadhar, setShowAadhar] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadedFiles, setUploadedFiles] = useState<FileList | null>(null);
   const { toast } = useToast();
   const navigate = useNavigate();
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
+    defaultValues: {
+      firstName: "",
+      lastName: "",
+      email: "",
+      phone: "",
+      dateOfBirth: "",
+      address: "",
+      city: "",
+      state: "",
+      pincode: "",
+      idType: "",
+      idNumber: "",
+      aadhar: "",
+      agreedToTerms: false,
+      agreedToPrivacy: false,
+    },
+  });
+
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (e.target.files && e.target.files.length > 0) {
+      setUploadedFiles(e.target.files);
+      toast({
+        title: "Files Uploaded",
+        description: `${e.target.files.length} file(s) selected successfully`,
+      });
+    }
   };
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    
-    if (!formData.agreedToTerms || !formData.agreedToPrivacy) {
-      toast({
-        title: "Agreement Required",
-        description: "Please agree to Terms & Conditions and Privacy Policy",
-        variant: "destructive",
-      });
-      return;
-    }
-
+  const onSubmit = async (data: FormValues) => {
     setIsSubmitting(true);
     
     // Simulate KYC processing
@@ -54,17 +91,10 @@ const KYCForm = () => {
       setIsSubmitting(false);
       toast({
         title: "Verification Complete!",
-        description: "Your identity has been successfully verified",
+        description: `${data.firstName} ${data.lastName}, your identity has been successfully verified. Email: ${data.email}, Phone: ${data.phone}`,
       });
-      navigate("/wallet");
+      navigate("/wallet", { state: { userData: data } });
     }, 3000);
-  };
-
-  const isFormValid = () => {
-    const requiredFields = ['firstName', 'lastName', 'email', 'phone', 'dateOfBirth', 'address', 'city', 'state', 'zipCode', 'idType', 'idNumber'];
-    return requiredFields.every(field => formData[field as keyof typeof formData]) && 
-           formData.agreedToTerms && 
-           formData.agreedToPrivacy;
   };
 
   return (
@@ -99,260 +129,375 @@ const KYCForm = () => {
         </Card>
 
         {/* KYC Form */}
-        <form onSubmit={handleSubmit}>
-          <Card className="shadow-card">
-            <CardHeader>
-              <CardTitle>Personal Information</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* Name Fields */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="firstName">First Name *</Label>
-                  <Input
-                    id="firstName"
-                    value={formData.firstName}
-                    onChange={(e) => handleInputChange("firstName", e.target.value)}
-                    placeholder="Enter your first name"
-                    required
+        <Form {...form}>
+          <form onSubmit={form.handleSubmit(onSubmit)}>
+            <Card className="shadow-card">
+              <CardHeader>
+                <CardTitle>Personal Information</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* Name Fields */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="firstName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>First Name *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter your first name" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="lastName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Last Name *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="Enter your last name" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
                 </div>
-                <div className="space-y-2">
-                  <Label htmlFor="lastName">Last Name *</Label>
-                  <Input
-                    id="lastName"
-                    value={formData.lastName}
-                    onChange={(e) => handleInputChange("lastName", e.target.value)}
-                    placeholder="Enter your last name"
-                    required
+
+                {/* Contact Information */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="email"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Email Address *</FormLabel>
+                        <FormControl>
+                          <Input type="email" placeholder="your.email@example.com" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="phone"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Phone Number *</FormLabel>
+                        <FormControl>
+                          <Input 
+                            type="tel" 
+                            placeholder="9876543210" 
+                            maxLength={10}
+                            {...field} 
+                            onChange={(e) => field.onChange(e.target.value.replace(/\D/g, ''))}
+                          />
+                        </FormControl>
+                        <FormDescription>Enter 10 digit mobile number</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
                 </div>
-              </div>
 
-              {/* Contact Information */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="email">Email Address *</Label>
-                  <Input
-                    id="email"
-                    type="email"
-                    value={formData.email}
-                    onChange={(e) => handleInputChange("email", e.target.value)}
-                    placeholder="your.email@example.com"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="phone">Phone Number *</Label>
-                  <Input
-                    id="phone"
-                    type="tel"
-                    value={formData.phone}
-                    onChange={(e) => handleInputChange("phone", e.target.value)}
-                    placeholder="(555) 123-4567"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* Date of Birth */}
-              <div className="space-y-2">
-                <Label htmlFor="dateOfBirth">Date of Birth *</Label>
-                <Input
-                  id="dateOfBirth"
-                  type="date"
-                  value={formData.dateOfBirth}
-                  onChange={(e) => handleInputChange("dateOfBirth", e.target.value)}
-                  required
-                />
-              </div>
-
-              {/* Address */}
-              <div className="space-y-4">
-                <div className="space-y-2">
-                  <Label htmlFor="address">Street Address *</Label>
-                  <Input
-                    id="address"
-                    value={formData.address}
-                    onChange={(e) => handleInputChange("address", e.target.value)}
-                    placeholder="123 Main Street"
-                    required
-                  />
-                </div>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div className="space-y-2">
-                    <Label htmlFor="city">City *</Label>
-                    <Input
-                      id="city"
-                      value={formData.city}
-                      onChange={(e) => handleInputChange("city", e.target.value)}
-                      placeholder="New York"
-                      required
-                    />
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="state">State *</Label>
-                    <Select value={formData.state} onValueChange={(value) => handleInputChange("state", value)}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Select state" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="NY">New York</SelectItem>
-                        <SelectItem value="CA">California</SelectItem>
-                        <SelectItem value="TX">Texas</SelectItem>
-                        <SelectItem value="FL">Florida</SelectItem>
-                        <SelectItem value="WA">Washington</SelectItem>
-                      </SelectContent>
-                    </Select>
-                  </div>
-                  <div className="space-y-2">
-                    <Label htmlFor="zipCode">ZIP Code *</Label>
-                    <Input
-                      id="zipCode"
-                      value={formData.zipCode}
-                      onChange={(e) => handleInputChange("zipCode", e.target.value)}
-                      placeholder="12345"
-                      required
-                    />
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Identity Verification */}
-          <Card className="shadow-card mt-6">
-            <CardHeader>
-              <CardTitle>Identity Verification</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {/* ID Type and Number */}
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="idType">ID Type *</Label>
-                  <Select value={formData.idType} onValueChange={(value) => handleInputChange("idType", value)}>
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select ID type" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="drivers_license">Driver's License</SelectItem>
-                      <SelectItem value="passport">Passport</SelectItem>
-                      <SelectItem value="state_id">State ID</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="idNumber">ID Number *</Label>
-                  <Input
-                    id="idNumber"
-                    value={formData.idNumber}
-                    onChange={(e) => handleInputChange("idNumber", e.target.value)}
-                    placeholder="Enter ID number"
-                    required
-                  />
-                </div>
-              </div>
-
-              {/* SSN (Optional) */}
-              <div className="space-y-2">
-                <Label htmlFor="ssn">Social Security Number (Optional)</Label>
-                <div className="relative">
-                  <Input
-                    id="ssn"
-                    type={showSSN ? "text" : "password"}
-                    value={formData.ssn}
-                    onChange={(e) => handleInputChange("ssn", e.target.value)}
-                    placeholder="XXX-XX-XXXX"
-                  />
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className="absolute right-2 top-0 h-full"
-                    onClick={() => setShowSSN(!showSSN)}
-                  >
-                    {showSSN ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
-                  </Button>
-                </div>
-                <p className="text-xs text-muted-foreground">
-                  Providing SSN increases trust score but is not required
-                </p>
-              </div>
-
-              {/* Document Upload Simulation */}
-              <div className="space-y-2">
-                <Label>Document Upload</Label>
-                <div className="border-2 border-dashed border-primary/30 rounded-lg p-6 text-center">
-                  <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
-                  <div className="text-sm text-muted-foreground mb-2">
-                    Upload a clear photo of your ID (front and back)
-                  </div>
-                  <Button type="button" variant="outline" size="sm">
-                    Choose Files
-                  </Button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Terms and Submit */}
-          <Card className="shadow-card mt-6">
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                {/* Agreement Checkboxes */}
-                <div className="space-y-3">
-                  <div className="flex items-start space-x-2">
-                    <Checkbox
-                      id="terms"
-                      checked={formData.agreedToTerms}
-                      onCheckedChange={(checked) => handleInputChange("agreedToTerms", checked ? "true" : "false")}
-                    />
-                    <Label htmlFor="terms" className="text-sm leading-relaxed">
-                      I agree to the <button type="button" className="text-primary hover:underline">Terms & Conditions</button> and 
-                      understand that my information will be used for identity verification purposes.
-                    </Label>
-                  </div>
-                  <div className="flex items-start space-x-2">
-                    <Checkbox
-                      id="privacy"
-                      checked={formData.agreedToPrivacy}
-                      onCheckedChange={(checked) => handleInputChange("agreedToPrivacy", checked ? "true" : "false")}
-                    />
-                    <Label htmlFor="privacy" className="text-sm leading-relaxed">
-                      I have read and agree to the <button type="button" className="text-primary hover:underline">Privacy Policy</button> and 
-                      consent to the processing of my personal data.
-                    </Label>
-                  </div>
-                </div>
-
-                {/* Submit Button */}
-                <Button
-                  type="submit"
-                  className="w-full bg-gradient-primary hover:shadow-glow transition-all duration-300"
-                  disabled={!isFormValid() || isSubmitting}
-                >
-                  {isSubmitting ? (
-                    <>
-                      <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
-                      Verifying Identity...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 className="w-4 h-4 mr-2" />
-                      Complete Verification
-                    </>
+                {/* Date of Birth */}
+                <FormField
+                  control={form.control}
+                  name="dateOfBirth"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Date of Birth *</FormLabel>
+                      <FormControl>
+                        <Input type="date" {...field} />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
                   )}
-                </Button>
+                />
 
-                {isSubmitting && (
-                  <div className="text-center text-sm text-muted-foreground">
-                    Please wait while we verify your information...
+                {/* Address */}
+                <div className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="address"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Street Address *</FormLabel>
+                        <FormControl>
+                          <Input placeholder="123 Main Street" {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <FormField
+                      control={form.control}
+                      name="city"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>City *</FormLabel>
+                          <FormControl>
+                            <Input placeholder="Mumbai" {...field} />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="state"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>State *</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select state" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="MH">Maharashtra</SelectItem>
+                              <SelectItem value="DL">Delhi</SelectItem>
+                              <SelectItem value="KA">Karnataka</SelectItem>
+                              <SelectItem value="TN">Tamil Nadu</SelectItem>
+                              <SelectItem value="WB">West Bengal</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="pincode"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Pincode *</FormLabel>
+                          <FormControl>
+                            <Input 
+                              placeholder="400001" 
+                              maxLength={6}
+                              {...field} 
+                              onChange={(e) => field.onChange(e.target.value.replace(/\D/g, ''))}
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   </div>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        </form>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Identity Verification */}
+            <Card className="shadow-card mt-6">
+              <CardHeader>
+                <CardTitle>Identity Verification</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-6">
+                {/* ID Type and Number */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <FormField
+                    control={form.control}
+                    name="idType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>ID Type *</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger>
+                              <SelectValue placeholder="Select ID type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="drivers_license">Driver's License</SelectItem>
+                            <SelectItem value="passport">Passport</SelectItem>
+                            <SelectItem value="state_id">State ID</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="idNumber"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>ID Number *</FormLabel>
+                        <FormControl>
+                          <Input 
+                            placeholder={
+                              form.watch("idType") === "passport" 
+                                ? "8 character code" 
+                                : form.watch("idType") === "drivers_license"
+                                ? "8-16 characters"
+                                : "Enter ID number"
+                            } 
+                            {...field} 
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          {form.watch("idType") === "passport" && "Passport must be 8 characters"}
+                          {form.watch("idType") === "drivers_license" && "License must be 8-16 characters"}
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </div>
+
+                {/* Aadhar Number (Mandatory) */}
+                <FormField
+                  control={form.control}
+                  name="aadhar"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Aadhar Number *</FormLabel>
+                      <FormControl>
+                        <div className="relative">
+                          <Input
+                            type={showAadhar ? "text" : "password"}
+                            placeholder="123456789012"
+                            maxLength={12}
+                            {...field}
+                            onChange={(e) => field.onChange(e.target.value.replace(/\D/g, ''))}
+                          />
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="absolute right-2 top-0 h-full"
+                            onClick={() => setShowAadhar(!showAadhar)}
+                          >
+                            {showAadhar ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                          </Button>
+                        </div>
+                      </FormControl>
+                      <FormDescription>Enter 12 digit Aadhar number</FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                {/* Document Upload */}
+                <div className="space-y-2">
+                  <Label>Document Upload *</Label>
+                  <div className="border-2 border-dashed border-primary/30 rounded-lg p-6 text-center">
+                    <Upload className="w-8 h-8 text-muted-foreground mx-auto mb-2" />
+                    <div className="text-sm text-muted-foreground mb-2">
+                      Upload a clear photo of your ID (front and back)
+                    </div>
+                    <input
+                      type="file"
+                      id="file-upload"
+                      className="hidden"
+                      multiple
+                      accept="image/*,.pdf"
+                      onChange={handleFileChange}
+                    />
+                    <Button 
+                      type="button" 
+                      variant="outline" 
+                      size="sm"
+                      onClick={() => document.getElementById('file-upload')?.click()}
+                    >
+                      Choose Files
+                    </Button>
+                    {uploadedFiles && (
+                      <p className="text-sm text-primary mt-2">
+                        {uploadedFiles.length} file(s) selected
+                      </p>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+
+            {/* Terms and Submit */}
+            <Card className="shadow-card mt-6">
+              <CardContent className="pt-6">
+                <div className="space-y-4">
+                  {/* Agreement Checkboxes */}
+                  <div className="space-y-3">
+                    <FormField
+                      control={form.control}
+                      name="agreedToTerms"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-2 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel className="text-sm leading-relaxed">
+                              I agree to the <button type="button" className="text-primary hover:underline">Terms & Conditions</button> and 
+                              understand that my information will be used for identity verification purposes.
+                            </FormLabel>
+                            <FormMessage />
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="agreedToPrivacy"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-start space-x-2 space-y-0">
+                          <FormControl>
+                            <Checkbox
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                          <div className="space-y-1 leading-none">
+                            <FormLabel className="text-sm leading-relaxed">
+                              I have read and agree to the <button type="button" className="text-primary hover:underline">Privacy Policy</button> and 
+                              consent to the processing of my personal data.
+                            </FormLabel>
+                            <FormMessage />
+                          </div>
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+
+                  {/* Submit Button */}
+                  <Button
+                    type="submit"
+                    className="w-full bg-gradient-primary hover:shadow-glow transition-all duration-300"
+                    disabled={isSubmitting}
+                  >
+                    {isSubmitting ? (
+                      <>
+                        <div className="animate-spin rounded-full h-4 w-4 border-2 border-white border-t-transparent mr-2" />
+                        Verifying Identity...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 className="w-4 h-4 mr-2" />
+                        Complete Verification
+                      </>
+                    )}
+                  </Button>
+
+                  {isSubmitting && (
+                    <div className="text-center text-sm text-muted-foreground">
+                      Please wait while we verify your information...
+                    </div>
+                  )}
+                </div>
+              </CardContent>
+            </Card>
+          </form>
+        </Form>
       </div>
     </div>
   );
